@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 import time
+import pickle
 
 from utils import *
 
@@ -34,10 +35,10 @@ def synthesize_family_customer_records(size=None):
     MIN_AGE_GAP_PARENTS_CHILDREN = 25
     MAX_AGE_GAP_PARENTS_CHILDREN = 45
     MAX_AGE_DIFF_PARENTS = 5
-    MIN_AGE_DIFF_NON_TWIN_CHILDREN = 1
     TWIN_PROBABILITY = 0.1
     MAX_TWIN_SIZE = 3
     MAX_RANDOM_FAMILY_SIZE = 5
+    CHILDREN_MALE_PROBABILITY = 0.5
 
     assert (size is None) or (size >= 2)
     
@@ -59,6 +60,7 @@ def synthesize_family_customer_records(size=None):
 
     def synthesize_children_date_of_birth(num=0, father_dob=None, mother_dob=None):
         assert (not (father_dob is None)) and (not (mother_dob is None))
+        assert num < (MAX_AGE_GAP_PARENTS_CHILDREN - MIN_AGE_GAP_PARENTS_CHILDREN)
         father_dob_ts = datetime.strptime(father_dob, '%Y-%m-%d')
         mother_dob_ts = datetime.strptime(mother_dob, '%Y-%m-%d')
         min_children_dob = (father_dob_ts if father_dob_ts > mother_dob_ts else mother_dob_ts) + \
@@ -67,8 +69,6 @@ def synthesize_family_customer_records(size=None):
                            timedelta(days=MAX_AGE_GAP_PARENTS_CHILDREN*365)
         if max_children_dob > (datetime.now() - timedelta(days=MIN_AGE*365)):
             max_children_dob = datetime.now() - timedelta(days=MIN_AGE*365)
-        print(min_children_dob)
-        print(max_children_dob)
         children_dobs = []
         while num > 0:
             if (num >= 2) and (random.random() < TWIN_PROBABILITY):
@@ -80,9 +80,21 @@ def synthesize_family_customer_records(size=None):
                 num = num - twin_size
             else:
                 existed_ts = list(map(lambda x : datetime.strptime(x, '%Y-%m-%d'), children_dobs))
-                children_dob = synthesize_date(
-                    time.strftime('%Y-%m-%d', min_children_dob.timetuple()),
-                    time.strftime('%Y-%m-%d', max_children_dob.timetuple()))
+                children_dob = None
+                valid_date = False
+                while not valid_date:
+                    children_dob = synthesize_date(
+                        time.strftime('%Y-%m-%d', min_children_dob.timetuple()),
+                        time.strftime('%Y-%m-%d', max_children_dob.timetuple()))
+                    children_ts = datetime.strptime(children_dob, '%Y-%m-%d')
+                    valid_date = True
+                    for existed_dob in existed_ts:
+                        if (children_ts > existed_dob) and \
+                           (children_ts < (existed_dob + timedelta(days=365))):
+                            valid_date = False
+                        if (children_ts < existed_dob) and \
+                           (children_ts > (existed_dob - timedelta(days=365))):
+                            valid_date = False
                 children_dobs.append(children_dob)
                 num = num - 1
         return children_dobs
@@ -102,5 +114,73 @@ def synthesize_family_customer_records(size=None):
     family_names.append((mother_name[0], father_name[1], 'FEMALE', mother_dob))
 
     num_children = random.randint(0, MAX_RANDOM_FAMILY_SIZE - 2) if (size is None) else (size - 2)
-        
-    return synthesize_children_date_of_birth(5, father_dob, mother_dob)
+    children_dobs = synthesize_children_date_of_birth(num_children, father_dob, mother_dob)
+    for children_dob in children_dobs:
+        children_name = None
+        children_gender = None
+        if random.random() < CHILDREN_MALE_PROBABILITY:
+            children_name = (synthesize_male_name()[0], father_name[1])
+            children_gender = 'MALE'
+        else:
+            children_name = (synthesize_female_name()[0], father_name[1])
+            children_gender = 'FEMALE'
+        children_record = (children_name[0], children_name[1], children_gender, children_dob)
+        family_names.append(children_record)
+            
+    return family_names
+
+def synthesize_customer_table():
+    NUM_TOTAL_RECORD = 500
+    FAMILY_PERCENTAGE = 0.6
+    START_OF_CUSTOMER_ID = 10
+
+    num_family_customer = int(NUM_TOTAL_RECORD * FAMILY_PERCENTAGE)
+    num_solo_customer = NUM_TOTAL_RECORD - num_family_customer
+
+    family_customers = []
+    while num_family_customer > 0:
+        synthesized_family = None
+        if num_family_customer < 5:
+            if (num_family_customer < 2):
+                num_family_customer = 0
+                num_solo_customer = num_solo_customer + num_family_customer
+                break
+            synthesized_family = synthesize_family_customer_records(num_family_customer)
+        else:
+            synthesized_family = synthesize_family_customer_records(None)
+        num_family_customer = num_family_customer - len(synthesized_family)
+        family_customers.append(synthesized_family)
+
+    solo_customers = []
+    while num_solo_customer > 0:
+        solo_customers.append([synthesize_solo_customer_record()])
+        num_solo_customer = num_solo_customer - 1
+
+    customers = family_customers + solo_customers
+    random.shuffle(customers)
+    serialized_customer_file = open('customers.pickle', 'wb')
+    pickle.dump(customers, serialized_customer_file)
+    serialized_customer_file.close()
+
+    customer_id = START_OF_CUSTOMER_ID
+    records = []
+    for customer in customers:
+        if len(customer) == 1:
+            records.append((customer_id, customer[0][0], customer[0][1],
+                            customer[0][2], customer[0][3]))
+            customer_id = customer_id + 1
+        else:
+            for record in customer:
+                records.append((customer_id, record[0], record[1], record[2], record[3]))
+                customer_id = customer_id + 1
+    return records
+
+if __name__ == '__main__':
+    FORMAT = "INSERT INTO customer values(%d, '%s', '%s', '%s', '%s') ;"
+    customers = synthesize_customer_table()
+    commands = []
+    for customer in customers:
+        commands.append(FORMAT%(customer[0], customer[1], customer[2],
+                                customer[3], customer[4]))
+    for command in commands:
+        print(command)
