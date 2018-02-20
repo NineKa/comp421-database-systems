@@ -1,2 +1,3 @@
 __pycache__/
-customers.pickle
+customer.pickle
+customer.sql

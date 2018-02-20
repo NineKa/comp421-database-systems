@@ -158,7 +158,7 @@ def synthesize_customer_table():
 
     customers = family_customers + solo_customers
     random.shuffle(customers)
-    serialized_customer_file = open('customers.pickle', 'wb')
+    serialized_customer_file = open('customer.pickle', 'wb')
     pickle.dump(customers, serialized_customer_file)
     serialized_customer_file.close()
 
